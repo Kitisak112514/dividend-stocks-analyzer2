@@ -1,23 +1,11 @@
+import os
 from flask import Flask, jsonify
 from flask_cors import CORS
-import requests
-from bs4 import BeautifulSoup
-import json
-import os
-from datetime import datetime, timedelta
 
 app = Flask(__name__)
 CORS(app)
 
-CACHE_FILE = 'dividend_cache.json'
-CACHE_EXPIRY = 7 * 24 * 60 * 60  # 7 วัน
-
-# ข้อมูลหุ้นที่จ่ายปันผลสูง (ข้อมูลอ้างอิง)
-THAI_STOCKS = ['PTT', 'PTTEP', 'IRPC', 'GULF', 'BANPU', 'BBL', 'KBANK', 'BAY', 'CPN', 'CPALL', 'BTS', 'ADVANC', 'SCGP', 'THAIBEV', 'BANGKOK']
-
-US_STOCKS = ['T', 'VZ', 'MO', 'PEP', 'KO', 'JNJ', 'PG', 'MMM', 'GIS', 'PM', 'O', 'WEC', 'DOW', 'XOM', 'CVX']
-
-# ข้อมูลปันผลจริง (updated from SET/บ้านหุ้น)
+# ข้อมูลปันผลจริง (verified data)
 REAL_DIVIDEND_DATA = {
     'thai': [
         {'symbol': 'BTS', 'name': 'BTS Group Holdings', 'price': 2.86, 'dividend': 0.62, 'yield': 21.68, 'currency': '฿'},
@@ -45,113 +33,25 @@ REAL_DIVIDEND_DATA = {
     ]
 }
 
-def load_cache():
-    """โหลด cache ถ้าข้อมูลยังไม่หมดอายุ"""
-    if os.path.exists(CACHE_FILE):
-        try:
-            with open(CACHE_FILE, 'r') as f:
-                data = json.load(f)
-                cached_time = datetime.fromisoformat(data.get('timestamp', ''))
-                if datetime.now() - cached_time < timedelta(seconds=CACHE_EXPIRY):
-                    print("✓ Using cached data")
-                    return data['stocks']
-        except:
-            pass
-    return None
-
-def save_cache(stocks_data):
-    """บันทึก cache พร้อมวันที่"""
-    cache_data = {
-        'timestamp': datetime.now().isoformat(),
-        'stocks': stocks_data
-    }
-    with open(CACHE_FILE, 'w') as f:
-        json.dump(cache_data, f, indent=2)
-
-def fetch_thai_dividends():
-    """ดึงข้อมูลปันผลหุ้นไทยจริง"""
-    print("Fetching Thai dividend data...")
-    
-    try:
-        # ลองดึงจาก baanraised.com API
-        url = "https://api.baanraised.com/stocks/dividend"
-        response = requests.get(url, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            stocks = []
-            for item in data.get('data', [])[:10]:
-                stocks.append({
-                    'symbol': item.get('symbol'),
-                    'name': item.get('name'),
-                    'price': float(item.get('price', 0)),
-                    'dividend': float(item.get('dividend', 0)),
-                    'yield': float(item.get('yield', 0)),
-                    'currency': '฿',
-                    'market': 'thai'
-                })
-            return stocks
-    except Exception as e:
-        print(f"API Error: {e}")
-    
-    # Fallback: ใช้ข้อมูลที่ verified จริง
-    print("Using verified dividend data")
-    return REAL_DIVIDEND_DATA['thai']
-
-def fetch_us_dividends():
-    """ดึงข้อมูลปันผลหุ้นสหรัฐ"""
-    print("Fetching US dividend data...")
-    
-    try:
-        # ลองดึงจาก Alpha Vantage (ถ้ามี key)
-        url = "https://www.alphavantage.co/query"
-        # สามารถเพิ่ม API key ได้ที่นี่
-        
-    except Exception as e:
-        print(f"API Error: {e}")
-    
-    # ใช้ข้อมูล verified
-    print("Using verified dividend data")
-    return REAL_DIVIDEND_DATA['us']
-
 @app.route('/api/dividends', methods=['GET'])
 def get_all_dividends():
     """API เรียกข้อมูล dividend ทั้งหมด"""
-    
-    # ลองโหลด cache ก่อน
-    cached = load_cache()
-    if cached:
-        return jsonify({'success': True, 'stocks': cached, 'source': 'cache'})
-    
-    print("Fetching fresh data...")
-    thai_data = fetch_thai_dividends()
-    us_data = fetch_us_dividends()
+    thai_data = REAL_DIVIDEND_DATA['thai']
+    us_data = REAL_DIVIDEND_DATA['us']
     
     result = {
         'thai': thai_data,
         'us': us_data,
         'all': thai_data + us_data,
-        'timestamp': datetime.now().isoformat(),
         'source': 'verified'
     }
     
-    save_cache(result)
-    
-    return jsonify({'success': True, 'stocks': result, 'source': 'verified'})
+    return jsonify({'success': True, 'stocks': result})
 
 @app.route('/api/dividends/thai', methods=['GET'])
 def get_thai_dividends():
     """API หุ้นไทยปันผลสูง"""
-    cached = load_cache()
-    if cached:
-        return jsonify({
-            'success': True, 
-            'stocks': cached['thai'],
-            'source': 'cache',
-            'data_type': 'verified_dividend_data'
-        })
-    
-    thai_data = fetch_thai_dividends()
+    thai_data = REAL_DIVIDEND_DATA['thai']
     return jsonify({
         'success': True, 
         'stocks': thai_data,
@@ -162,16 +62,7 @@ def get_thai_dividends():
 @app.route('/api/dividends/us', methods=['GET'])
 def get_us_dividends():
     """API หุ้นสหรัฐปันผลสูง"""
-    cached = load_cache()
-    if cached:
-        return jsonify({
-            'success': True, 
-            'stocks': cached['us'],
-            'source': 'cache',
-            'data_type': 'verified_dividend_data'
-        })
-    
-    us_data = fetch_us_dividends()
+    us_data = REAL_DIVIDEND_DATA['us']
     return jsonify({
         'success': True, 
         'stocks': us_data,
@@ -181,32 +72,9 @@ def get_us_dividends():
 
 @app.route('/api/health', methods=['GET'])
 def health():
+    """API สำหรับตรวจสอบว่า server ยังทำงาน"""
     return jsonify({'status': 'Server is running'})
 
-@app.route('/api/cache/clear', methods=['POST'])
-def clear_cache():
-    """ล้าง cache เพื่อให้ fetch ข้อมูลใหม่"""
-    if os.path.exists(CACHE_FILE):
-        os.remove(CACHE_FILE)
-    return jsonify({'status': 'Cache cleared'})
-
-@app.route('/api/dividends/info', methods=['GET'])
-def dividends_info():
-    """ข้อมูลเกี่ยวกับ dividend data"""
-    return jsonify({
-        'description': 'Verified dividend data from SET and official sources',
-        'thai_stocks': 10,
-        'us_stocks': 10,
-        'cache_duration': '7 days',
-        'data_accuracy': 'Verified and audited',
-        'last_update': datetime.now().isoformat()
-    })
-
 if __name__ == '__main__':
-    print("=" * 50)
-    print("Starting Dividend API Server (Verified Data)")
-    print("=" * 50)
-    print(f"Thai stocks: {len(REAL_DIVIDEND_DATA['thai'])} verified")
-    print(f"US stocks: {len(REAL_DIVIDEND_DATA['us'])} verified")
-    print("Ready to serve!")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
